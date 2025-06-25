@@ -4,7 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 # Title
-st.title("Insight Lab: Interactive Data Exploration")
+st.title("InsightLab: Interactive Data Exploration")
 
 # Sidebar Info
 st.sidebar.header("Data Analysis Reference")

@@ -1,140 +1,238 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
+import re, io
 
-# Title
+# App + theme
+st.set_page_config(page_title="InsightLab: Interactive Data Exploration", layout="wide")
 st.title("InsightLab: Interactive Data Exploration")
+COLOR = "#87ae73"; COLOR_DARK = "#8A9A5B"
+sns.set_theme(style="whitegrid", rc={"axes.spines.top": False, "axes.spines.right": False, "font.size": 12})
 
-# Sidebar Info
-st.sidebar.header("Data Analysis Reference")
-st.sidebar.markdown("""
-**Example Use Case:**
-To find the **maximum star rating for a crime film**:
-1. Go to the "Conditional Value Lookup" section
-2. Select `genre` as the filter column
-3. Choose `Crime` as the value
-4. Pick `star_rating` as the numeric column
-5. Set the aggregation to `max`
+def stylize(ax, title=None, xlabel=None, ylabel=None):
+    if title: ax.set_title(title, weight="600")
+    if xlabel: ax.set_xlabel(xlabel)
+    if ylabel: ax.set_ylabel(ylabel)
+    ax.grid(axis="y", linestyle="--", alpha=0.5)
+    return ax
 
-**Tip:** Avoid using min, max, or median when there's only one value per group.
-For example, calculating median `duration` for `The Shawshank Redemption` isn't meaningful—there's only one value, so all stats will reflect that single value.
+def apply_ylim(ax, data_max, override):
+    ax.set_ylim(0, override if override and override > 0 else (float(data_max) * 1.10 if data_max is not None else 1.0))
 
----
-**Common Descriptive Stats:**
-- `df.column.mean()` → Average of values in column
-- `df.column.std()` → Standard deviation
-- `df.column.median()` → Median value
-- `df.column.max()` → Maximum value
-- `df.column.min()` → Minimum value
-- `df.column.count()` → Count of non-null values
-- `df.column.nunique()` → Number of unique values
-- `df.column.unique()` → Array of unique values
+def apply_locator(ax, step):
+    if step and step > 0: ax.yaxis.set_major_locator(MultipleLocator(step))
 
-**Spread Metrics:**
-- Range: `df.column.max() - df.column.min()`
-- IQR: `df.column.quantile(0.75) - df.column.quantile(0.25)`
-- Variance: `df.column.var()`
-- MAD: `df.column.mad()`
+# Sidebar
+st.sidebar.header("Navigation")
+page = st.sidebar.selectbox("Go to", ["EDA", "Metric by Group (Box/Bar Plots)"])
 
-**Categorical Analysis:**
-- `df.column.value_counts()` → Count per category
-- `df.column.value_counts(normalize=True)` → Proportion per category
-""")
-
-# Load default movie dataset
+# Data
 @st.cache_data
 def load_default_data():
     url = "https://raw.githubusercontent.com/justmarkham/pandas-videos/master/data/imdb_1000.csv"
     return pd.read_csv(url)
 
-# File uploader
 uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
-
-df = pd.read_csv(uploaded_file) if uploaded_file else load_default_data()
-
-# Show basic dataframe
-st.subheader("Preview of Data")
-st.dataframe(df.head())
-
-# EDA options
-st.subheader("Exploratory Data Analysis")
-selected_column = st.selectbox("Select a column for analysis", df.columns)
-
-# Define available functions
-numeric_functions = [
-    "Mean", "Standard Deviation", "Median", "Maximum", "Minimum",
-    "Count", "Number of Unique Values", "List of Unique Values",
-    "Range", "Interquartile Range (IQR)", "Variance", "Mean Absolute Deviation (MAD)"
-]
-categorical_functions = ["Value Counts", "Normalized Value Counts"]
-
-if pd.api.types.is_numeric_dtype(df[selected_column]):
-    function_options = numeric_functions + categorical_functions
-else:
-    function_options = categorical_functions + [
-        "Count", "Number of Unique Values", "List of Unique Values"
-    ]
-
-analysis_type = st.selectbox("Select an analysis function", function_options)
-
-st.write("### Result")
-try:
-    if analysis_type == "Mean":
-        st.write(df[selected_column].mean())
-    elif analysis_type == "Standard Deviation":
-        st.write(df[selected_column].std())
-    elif analysis_type == "Median":
-        st.write(df[selected_column].median())
-    elif analysis_type == "Maximum":
-        st.write(df[selected_column].max())
-    elif analysis_type == "Minimum":
-        st.write(df[selected_column].min())
-    elif analysis_type == "Count":
-        st.write(df[selected_column].count())
-    elif analysis_type == "Number of Unique Values":
-        st.write(df[selected_column].nunique())
-    elif analysis_type == "List of Unique Values":
-        st.write(df[selected_column].unique())
-    elif analysis_type == "Range":
-        st.write(df[selected_column].max() - df[selected_column].min())
-    elif analysis_type == "Interquartile Range (IQR)":
-        st.write(df[selected_column].quantile(0.75) - df[selected_column].quantile(0.25))
-    elif analysis_type == "Variance":
-        st.write(df[selected_column].var())
-    elif analysis_type == "Mean Absolute Deviation (MAD)":
-        st.write(df[selected_column].mad())
-    elif analysis_type == "Value Counts":
-        st.write(df[selected_column].value_counts())
-    elif analysis_type == "Normalized Value Counts":
-        st.write(df[selected_column].value_counts(normalize=True))
-except Exception as e:
-    st.error(f"Error applying function: {e}")
-
-# Seaborn Plot
-if pd.api.types.is_numeric_dtype(df[selected_column]):
-    st.write(f"### Distribution Plot for {selected_column}")
-    fig, ax = plt.subplots()
-    sns.histplot(df[selected_column].dropna(), kde=True, ax=ax)
-    st.pyplot(fig)
-
-# Filter-Based Conditional Summary
-st.subheader("Conditional Value Lookup")
-
-filter_col = st.selectbox("Select a categorical column to filter by", df.select_dtypes(include='object').columns)
-filter_val = st.selectbox(f"Select a value in '{filter_col}'", df[filter_col].dropna().unique())
-numeric_col_for_lookup = st.selectbox("Select a numeric column to summarize", df.select_dtypes(include='number').columns)
-agg_lookup_func = st.selectbox("Select an aggregation function", ["max", "min", "mean", "median", "std"])
-
-if st.button("Run Conditional Lookup"):
-    try:
-        filtered_df = df[df[filter_col] == filter_val]
-        result = getattr(filtered_df[numeric_col_for_lookup], agg_lookup_func)()
-        st.success(f"{agg_lookup_func.upper()} {numeric_col_for_lookup} for {filter_val} in {filter_col}: {result}")
+if uploaded_file:
+    try: df = pd.read_csv(uploaded_file)
     except Exception as e:
-        st.error(f"Failed to compute value: {e}")
+        st.error(f"Could not read the uploaded file: {e}"); df = load_default_data()
+else:
+    df = load_default_data()
 
+# Helpers
+def guess_metric(cols):
+    for c in cols:
+        if isinstance(c, str) and c.strip().lower() == "positive area percentage": return c
+    for c in cols:
+        if isinstance(c, str) and "positive" in c.lower() and "percent" in c.lower(): return c
+    return None
 
-# Full Descriptive Statistics
-st.write("### Full Descriptive Statistics")
-st.write(df.describe(include='all'))
+ID_PAT = re.compile(r"(?:^|_)PAS_(\d{2,4}|WT\d+)(?:_|$)", re.IGNORECASE)
+def parse_id(name):
+    if not isinstance(name, str): return None
+    m = ID_PAT.search(name);  return m.group(1).upper() if m else None
+
+def parse_type(name, ignore_tokens):
+    if not isinstance(name, str): return None
+    tokens = re.split(r"[_.]", name)
+    for tok in reversed(tokens[:-1]):
+        t = tok.upper()
+        if t and t not in ignore_tokens: return t
+    return None
+
+def has_ignored(name, ignore_tokens):
+    if not isinstance(name, str): return False
+    low = name.lower()
+    return any(tok.lower() in low for tok in ignore_tokens)
+
+# Page: EDA
+if page == "EDA":
+    st.subheader("Preview")
+    st.dataframe(df.head())
+
+    st.subheader("Explore a column")
+    colname = st.selectbox("Column", df.columns)
+    if pd.api.types.is_numeric_dtype(df[colname]):
+        s = df[colname].dropna()
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Count", int(s.count()))
+        c2.metric("Mean", round(float(s.mean()), 4) if len(s) else np.nan)
+        c3.metric("Std", round(float(s.std()), 4) if len(s) else np.nan)
+        c4.metric("Min", round(float(s.min()), 4) if len(s) else np.nan)
+        c5.metric("Max", round(float(s.max()), 4) if len(s) else np.nan)
+
+        fig, ax = plt.subplots()
+        sns.histplot(s, ax=ax, color=COLOR, edgecolor=COLOR_DARK, alpha=0.75)
+        try: sns.kdeplot(s, ax=ax, color=COLOR_DARK, linewidth=2)
+        except Exception: pass
+        stylize(ax, f"Distribution of {colname}", colname, "Count")
+        st.pyplot(fig)
+    else:
+        st.write("Value counts")
+        st.write(df[colname].value_counts(dropna=False))
+
+    st.subheader("Describe (all)")
+    st.write(df.describe(include="all"))
+
+# Page: Plots
+else:
+    st.subheader("Metric by Group")
+
+    obj_cols = df.select_dtypes(include="object").columns.tolist()
+    if not obj_cols:
+        st.error("No text/filename column found."); st.stop()
+    filename_col = st.selectbox("Filename column", options=obj_cols, index=(obj_cols.index("Name") if "Name" in obj_cols else 0))
+
+    num_cols = df.select_dtypes(include=np.number).columns.tolist()
+    if not num_cols:
+        st.error("No numeric columns found."); st.stop()
+    metric_guess = guess_metric(df.columns) or num_cols[0]
+    metric_col = st.selectbox("Metric (y-axis)", options=num_cols, index=(num_cols.index(metric_guess) if metric_guess in num_cols else 0))
+
+    st.markdown("**Y ticks**")
+    tick_step = st.number_input("Y tick step (0 = auto)", min_value=0.0, value=0.0, step=0.1)
+
+    st.markdown("**Grouping**")
+    default_ignore = ["s1", "s3", "ctrl"]
+    ignore_text = st.text_input("Ignore tokens (comma-separated)", value=",".join(default_ignore))
+    ignore_tokens = {t.strip().upper() for t in ignore_text.split(",") if t.strip()}
+    drop_ignored = st.checkbox("Drop rows containing ignored tokens", value=False)
+
+    w = df.copy()
+    if drop_ignored: w = w[~w[filename_col].apply(lambda x: has_ignored(x, ignore_tokens))].copy()
+    w["Group_ID"] = w[filename_col].apply(parse_id)
+    w["Group_Type"] = w[filename_col].apply(lambda x: parse_type(x, ignore_tokens))
+    base = w[[filename_col, metric_col, "Group_ID", "Group_Type"]].dropna(subset=[metric_col]).copy()
+
+    with st.expander("Parsed preview"):
+        st.dataframe(base.head(20))
+
+    plot_num_df = base.dropna(subset=["Group_ID"])[["Group_ID", metric_col]].rename(columns={"Group_ID": "Group"})
+    plot_tis_df = base.dropna(subset=["Group_Type"])[["Group_Type", metric_col]].rename(columns={"Group_Type": "Group"})
+    if plot_num_df.empty and plot_tis_df.empty:
+        st.warning("No data available."); st.stop()
+
+    def make_boxplot(data, y_col, group_label):
+        order = data.groupby("Group")[y_col].median().sort_values(ascending=False).index.tolist()
+        fig, ax = plt.subplots(figsize=(10, 5))
+        sns.boxplot(data=data, x="Group", y=y_col, order=order, ax=ax, color=COLOR, fliersize=2, linewidth=1)
+        sns.stripplot(data=data, x="Group", y=y_col, order=order, ax=ax, color=COLOR_DARK, alpha=0.65, jitter=0.2, size=3)
+        if len(order) > 8:
+            for lbl in ax.get_xticklabels(): lbl.set_rotation(30); lbl.set_ha("right")
+        stylize(ax, f"{y_col} by {group_label}", group_label, y_col)
+        return fig, ax
+
+    # Plot A — by ID
+    st.markdown("**Plot A — by ID**")
+    y_max_a = st.number_input("Y max (Plot A)", min_value=0.0, value=0.0, step=0.1, key="ymax_a")
+    if not plot_num_df.empty:
+        fig_a, ax_a = make_boxplot(plot_num_df, metric_col, "ID")
+        apply_ylim(ax_a, plot_num_df[metric_col].max(), y_max_a); apply_locator(ax_a, tick_step)
+        st.pyplot(fig_a)
+        buf_a = io.BytesIO(); fig_a.savefig(buf_a, format="png", dpi=200, bbox_inches="tight"); buf_a.seek(0)
+        st.download_button("Download Plot A (PNG)", data=buf_a, file_name=f"{metric_col}_by_ID.png", mime="image/png")
+
+    # Plot B — by Type
+    st.markdown("**Plot B — by Type**")
+    y_max_b = st.number_input("Y max (Plot B)", min_value=0.0, value=0.0, step=0.1, key="ymax_b")
+    if not plot_tis_df.empty:
+        fig_b, ax_b = make_boxplot(plot_tis_df, metric_col, "Type")
+        apply_ylim(ax_b, plot_tis_df[metric_col].max(), y_max_b); apply_locator(ax_b, tick_step)
+        st.pyplot(fig_b)
+        buf_b = io.BytesIO(); fig_b.savefig(buf_b, format="png", dpi=200, bbox_inches="tight"); buf_b.seek(0)
+        st.download_button("Download Plot B (PNG)", data=buf_b, file_name=f"{metric_col}_by_Type.png", mime="image/png")
+
+    # Plot C — Per-sample bars
+    st.markdown("**Plot C — Per-sample bars**")
+    ids = sorted(base["Group_ID"].dropna().unique().tolist())
+    selected_ids = st.multiselect("Sample ID(s)", options=ids, default=ids[:1])
+    agg_mode = st.radio("If multiple rows per (ID, Type):", options=["mean", "median", "max", "min"], horizontal=True)
+    y_max_c = st.number_input("Y max (Plot C)", min_value=0.0, value=0.0, step=0.1, key="ymax_c")
+
+    def sample_barplot(sample_id):
+        subset = base[(base["Group_ID"] == sample_id) & base["Group_Type"].notna()].copy()
+        if subset.empty: return None, None, None
+        agg_df = subset.groupby("Group_Type", as_index=False)[metric_col].agg(agg_mode).sort_values("Group_Type")
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+        sns.barplot(data=agg_df, x="Group_Type", y=metric_col, ax=ax, color=COLOR, edgecolor=COLOR_DARK)
+        for lbl in ax.get_xticklabels(): lbl.set_rotation(20); lbl.set_ha("right")
+        stylize(ax, f"Sample {sample_id}: {metric_col} by Type ({agg_mode})", "Type", metric_col)
+        apply_ylim(ax, agg_df[metric_col].max(), y_max_c); apply_locator(ax, tick_step)
+        buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=200, bbox_inches="tight"); buf.seek(0)
+        return fig, buf, f"{metric_col}_sample_{sample_id}.png"
+
+    if selected_ids:
+        for sid in selected_ids:
+            fig_c, buf_c, fname_c = sample_barplot(sid)
+            if fig_c is None:
+                st.info(f"No types for sample {sid}.")
+                continue
+            st.pyplot(fig_c)
+            st.download_button(f"Download Sample {sid} (PNG)", data=buf_c, file_name=fname_c, mime="image/png")
+
+    # Plot D — Per-image bars
+    st.markdown("**Plot D — Per-image bars**")
+    all_ids = sorted(base["Group_ID"].dropna().unique().tolist())
+    all_tis = sorted(base["Group_Type"].dropna().unique().tolist())
+    c1, c2, c3 = st.columns([2,2,1])
+    with c1:
+        ids_for_images = st.multiselect("Filter by ID(s)", options=all_ids, default=all_ids[:1] if all_ids else [])
+    with c2:
+        tis_for_images = st.multiselect("Filter by type(s)", options=all_tis, default=[])
+    with c3:
+        short_labels = st.checkbox("Short labels", value=True)
+    y_max_d = st.number_input("Y max (Plot D)", min_value=0.0, value=0.0, step=0.1, key="ymax_d")
+
+    per_img = base.copy()
+    if ids_for_images: per_img = per_img[per_img["Group_ID"].isin(ids_for_images)]
+    if tis_for_images: per_img = per_img[per_img["Group_Type"].isin(tis_for_images)]
+
+    if per_img.empty:
+        st.info("No rows match filters.")
+    else:
+        def mk_label(row):
+            if not short_labels: return str(row[filename_col])
+            sid, tis = row.get("Group_ID"), row.get("Group_Type")
+            if pd.notna(sid) and pd.notna(tis): return f"{sid}_{tis}"
+            parts = re.split(r"[_.]", str(row[filename_col])); return parts[-2] if len(parts) >= 2 else str(row[filename_col])
+
+        plot_df = per_img[[filename_col, "Group_ID", "Group_Type", metric_col]].copy()
+        plot_df["Label"] = plot_df.apply(mk_label, axis=1)
+        plot_df = plot_df.sort_values(by=["Group_ID", "Group_Type", "Label"])
+
+        fig_d, ax_d = plt.subplots(figsize=(max(8, min(18, 0.5 * len(plot_df))), 5))
+        sns.barplot(data=plot_df, x="Label", y=metric_col, ax=ax_d, color=COLOR, edgecolor=COLOR_DARK)
+        for lbl in ax_d.get_xticklabels(): lbl.set_rotation(35); lbl.set_ha("right")
+        stylize(ax_d, f"Per-Image: {metric_col}", "Image", metric_col)
+        apply_ylim(ax_d, plot_df[metric_col].max(), y_max_d); apply_locator(ax_d, tick_step)
+        plt.tight_layout()
+
+        buf_d = io.BytesIO(); fig_d.savefig(buf_d, format="png", dpi=200, bbox_inches="tight"); buf_d.seek(0)
+        st.pyplot(fig_d)
+        st.download_button("Download Per-Image Plot (PNG)", data=buf_d, file_name=f"{metric_col}_per_image.png", mime="image/png")
+        with st.expander("Rows used"):
+            st.dataframe(plot_df[[filename_col, "Group_ID", "Group_Type", metric_col]].reset_index(drop=True))

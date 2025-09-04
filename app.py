@@ -24,6 +24,11 @@ def stylize(ax, title=None, xlabel=None, ylabel=None):
 def apply_ylim(ax, data_max, override):
     ax.set_ylim(0, override if override and override > 0 else (float(data_max) * 1.10 if data_max is not None else 1.0))
 
+def apply_ylim_range(ax, data_min=None, data_max=None, min_override=None, max_override=None):
+    y0 = min_override if (min_override is not None) else (float(data_min) if data_min is not None else 0.0)
+    y1 = max_override if (max_override and max_override > 0) else (float(data_max) * 1.10 if data_max is not None else 1.0)
+    ax.set_ylim(y0, y1)
+
 def apply_locator(ax, step):
     if step and step > 0: ax.yaxis.set_major_locator(MultipleLocator(step))
 
@@ -189,6 +194,22 @@ if page == "Distributions, Variation & Skewness":
             else:
                 sns.boxplot(data=base, x="Cohort", y=metric_col, order=order_coh, ax=ax_c, color=COLOR, fliersize=2, linewidth=1)
             stylize(ax_c, title_cohort_box, "Cohort", metric_col)
+
+            # ---- NEW: Y-axis controls for the cohort box plot ----
+            ymin_cohort = st.number_input("Y min (Cohort box)", value=0.0, step=0.1, key="ymin_cohort_box")
+            ymax_cohort = st.number_input("Y max (Cohort box)", value=0.0, step=0.1, key="ymax_cohort_box")  # 0 = auto
+            tick_step_cohort = st.number_input("Y tick step (Cohort box, 0 = auto)", min_value=0.0, value=0.0, step=0.1, key="ytick_cohort_box")
+
+            apply_ylim_range(
+                ax_c,
+                data_min=base[metric_col].min(),
+                data_max=base[metric_col].max(),
+                min_override=ymin_cohort,
+                max_override=ymax_cohort if ymax_cohort > 0 else None
+            )
+            apply_locator(ax_c, tick_step_cohort)
+            # ------------------------------------------------------
+
             st.pyplot(fig_c)
             st.download_button("Download PNG (Cohort box)", data=fig_png_bytes(fig_c), file_name=fname_from_title(title_cohort_box), mime="image/png")
 

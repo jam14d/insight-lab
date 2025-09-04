@@ -273,7 +273,7 @@ else:
     if qc_mode:
         grp_cols = ["Cohort","Tissue"] if use_tissue else ["Cohort"]
         small_groups = base.groupby(grp_cols, dropna=False)[metric_col].size()
-        if (small_groups < 3).any(): st.warning("Some groups have <3 samples. Interpret bars/CI with caution.")
+        #if (small_groups < 3).any(): st.warning("Some groups have <3 samples. Interpret bars/CI with caution.")
         base = mark_outliers_iqr(base, metric_col, grp_cols)
 
     st.markdown("### Plot 1 — Compare cohorts")

@@ -8,7 +8,7 @@ from typing import Set
 import re, io
 from scipy.stats import skew, kurtosis
 
-st.set_page_config(page_title="InsightLab: Distributions, Variation & Skewness", layout="wide")
+st.set_page_config(page_title="InsightLab", layout="wide")
 st.title("InsightLab: Distributions, Variation & Skewness")
 
 COLOR = "#59BBBB"; COLOR_DARK = "#59BBBB"

@@ -9,7 +9,7 @@ import re, io
 from scipy.stats import skew, kurtosis
 
 st.set_page_config(page_title="InsightLab", layout="wide")
-st.title("InsightLab: Distributions, Variation & Skewness")
+st.title("InsightLab")
 
 COLOR = "#59BBBB"; COLOR_DARK = "#59BBBB"
 sns.set_theme(style="whitegrid", rc={"axes.spines.top": False, "axes.spines.right": False, "font.size": 12})

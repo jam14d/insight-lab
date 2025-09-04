@@ -324,7 +324,7 @@ else:
             grp_cols2 = ["Group_Full","Tissue"] if (use_tissue and within["Tissue"].notna().any()) else ["Group_Full"]
             within = mark_outliers_iqr(within, metric_col, grp_cols2)
             small_ids = within.groupby(grp_cols2, dropna=False)[metric_col].size()
-            if (small_ids < 3).any(): st.warning(f"{single_cohort}: Some subgroups have <3 samples.")
+            #if (small_ids < 3).any(): st.warning(f"{single_cohort}: Some subgroups have <3 samples.")
 
         sort_mode = st.selectbox("Sort IDs by", ["ID (A→Z)", "median (desc)", "median (asc)", "mean (desc)", "mean (asc)"], index=1)
         point_size = st.slider("Point size", 3, 12, 6, step=1)

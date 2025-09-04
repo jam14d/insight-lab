@@ -164,7 +164,7 @@ if page == "Distributions, Variation & Skewness":
                                     index=(obj_cols.index("Name") if "Name" in obj_cols else 0),
                                     key="dist_filename")
         ignore_text = st.text_input("Ignore tokens (comma-separated)", value=",".join(sorted(DEFAULT_IGNORE_TOKENS)), key="dist_ignore")
-        tissue_text = st.text_input("Tissue tokens (comma-separated)", value=",".join(sorted(DEFAULT_TISSUE_TOKENS)), key="dist_tissue")
+        tissue_text = st.text_input("Key tokens (comma-separated)", value=",".join(sorted(DEFAULT_TISSUE_TOKENS)), key="dist_tissue")
         ignore_tokens = normalize_tokens(ignore_text.split(","))
         tissue_tokens = normalize_tokens(tissue_text.split(","))
         use_tissue = st.sidebar.toggle("Use tissue as a factor (distributions page)", value=False, key="dist_use_tissue")
@@ -235,7 +235,7 @@ else:
 
     st.markdown("Parsing / Filtering")
     ignore_text = st.text_input("Ignore tokens (comma-separated)", value=",".join(sorted(DEFAULT_IGNORE_TOKENS)))
-    tissue_text = st.text_input("Tissue tokens (comma-separated)", value=",".join(sorted(DEFAULT_TISSUE_TOKENS)))
+    tissue_text = st.text_input("Key tokens (comma-separated)", value=",".join(sorted(DEFAULT_TISSUE_TOKENS)))
     ignore_tokens = normalize_tokens(ignore_text.split(","))
     tissue_tokens = normalize_tokens(tissue_text.split(","))
     drop_ignored = st.checkbox("Drop rows containing any ignored tokens", value=False)

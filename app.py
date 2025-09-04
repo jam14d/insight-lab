@@ -85,8 +85,8 @@ def guess_metric(cols):
         if isinstance(c, str) and "positive" in c.lower() and "percent" in c.lower(): return c
     return None
 
-DEFAULT_IGNORE_TOKENS = {"S1", "S2", "S3", "MRXS"}
-DEFAULT_TISSUE_TOKENS = {"BRN", "SKM", "HRT", "DIA", "LVR"}
+DEFAULT_IGNORE_TOKENS = {"S1", "S2", "S3",}
+DEFAULT_TISSUE_TOKENS = {"BLAH", "BLOOP"}
 GROUP_RE = re.compile(r"(?i)\bG\d+(?:-\d+)?\b")
 PAS_RE = re.compile(r"(?i)\bPAS_(WT\d+|\d{2,4}(?:-\d+)?)\b")
 

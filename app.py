@@ -5,7 +5,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 from typing import Set
-import re, io
+import re, io, os
 from scipy.stats import skew, kurtosis
 
 st.set_page_config(page_title="InsightLab", layout="wide")
@@ -47,18 +47,6 @@ def calc_table(series: pd.Series) -> pd.DataFrame:
                          "skew":[skew(s) if n>2 else np.nan],
                          "kurtosis(excess)":[kurtosis(s) if n>3 else np.nan]})
 
-def mark_outliers_iqr(df: pd.DataFrame, value_col: str, group_cols: list) -> pd.DataFrame:
-    def _flag(g):
-        s = g[value_col].astype(float)
-        q1, q3 = s.quantile(0.25), s.quantile(0.75)
-        iqr = q3 - q1
-        low, high = q1 - 1.5*iqr, q3 + 1.5*iqr
-        return pd.Series((s < low) | (s > high), index=g.index)
-    if not group_cols:
-        df["_outlier"] = _flag(df); return df
-    df["_outlier"] = df.groupby(group_cols, dropna=False, observed=True).apply(lambda g: _flag(g)).reset_index(level=list(range(len(group_cols))), drop=True)
-    return df
-
 def slugify(s): return re.sub(r"[^A-Za-z0-9._-]+", "_", str(s)).strip("_").lower()
 def fig_png_bytes(fig, dpi=200):
     b = io.BytesIO(); fig.savefig(b, format="png", dpi=dpi, bbox_inches="tight"); b.seek(0); return b
@@ -66,37 +54,65 @@ def fname_from_title(title, ext="png"): return f"{slugify(title)}.{ext}"
 
 st.sidebar.header("Navigation")
 page = st.sidebar.selectbox("Go to", ["Distributions, Variation & Skewness", "Metric by Group (Box/Bar Plots)"])
-qc_mode = st.sidebar.toggle("QC mode", value=True)
+st.sidebar.divider()
+with st.sidebar.expander("Quick Guide"):
+    st.markdown("""### Distributions
+- **Histogram**: overall shape of your metric (e.g., Positive Area %).  
+  • Use to spot skewness (e.g., staining bias), heavy tails, or multiple subpopulations.  
+- **Box plot (overall)**: shows median, quartiles, and outliers.  
+  • Good for assessing variability across all images or slides.  
 
-@st.cache_data
-def load_default_data():
-    url = "https://raw.githubusercontent.com/justmarkham/pandas-videos/master/data/imdb_1000.csv"
-    return pd.read_csv(url)
+### Cohort comparison
+- **Box plots by Cohort**: compare spread and medians between experimental groups.  
+  • Helpful for seeing whether one treatment or genotype shifts the distribution.  
+- **Mean ± 95% CI bars**: group-level averages with confidence bounds.  
+  • 95% CI = interval where the *true mean* would fall ~95% of the time if repeated.  
+  • Narrow CI suggests reproducibility; wide CI suggests noise or low sample size.  
 
-uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
-if uploaded_file:
-    try:
-        df = pd.read_csv(uploaded_file)
-    except Exception as e:
-        st.error(f"Could not read the uploaded file: {e}")
-        df = load_default_data()
-else:
-    df = load_default_data()
+### Within-cohort
+- **Swarm/box plots per Group ID**: each dot = one image or ROI; box = summary.  
+  • Useful for checking consistency across replicates within a single cohort.  
+  • Outliers may point to staining artefacts, image quality issues, or real biological heterogeneity.  
 
-def guess_metric(cols):
-    for c in cols:
-        if isinstance(c, str) and c.strip().lower() == "positive area percentage": return c
-    for c in cols:
-        if isinstance(c, str) and "positive" in c.lower() and "percent" in c.lower(): return c
-    return None
+### Per-image bars
+- **Bar chart per image**: metrics at the individual slide or ROI level.  
+  • Good for case-by-case review — e.g., identifying which sections drive variability.  
 
-DEFAULT_IGNORE_TOKENS = {"S1", "S2", "S3",}
-DEFAULT_TISSUE_TOKENS = {"BLAH", "BLOOP"}
+### Parsing controls
+- **Filter cohorts**: select which experimental groups to analyze.  
+- **Key tokens**: capture tissue/organ labels (e.g., Heart, Liver, HRT, LVR).  
+- **Ignore tokens**: remove irrelevant strings (e.g., scan IDs like S3, scan3).  
+
+### Statistics shown
+- **n**: number of images/ROIs.  
+- **Mean & Median**: central tendency (sensitive vs. robust to outliers).  
+- **Std, SEM**: spread vs. precision of the mean.  
+- **95% CI**: mean ± 1.96 × SEM; non-overlapping CIs suggest real group differences.  
+- **Skew**: asymmetry (e.g., many low values but few very high ones).  
+- **Excess kurtosis**: tail heaviness vs. normal.  
+- **IQR outliers**: values far beyond the bulk of the cohort.  
+
+### Axis & export
+- Adjust Y-limits/ticks for fair comparison across plots.  
+- Export figures/tables for lab meetings, QC reports, or manuscripts.  
+""")
+
+
+
+
+
+# defaults
+DEFAULT_IGNORE_TOKENS = {"S1", "S2", "S3"}
+DEFAULT_TISSUE_TOKENS = {"HEART", "LIVER", "HRT", "LVR"}
+
 GROUP_RE = re.compile(r"(?i)\bG\d+(?:-\d+)?\b")
 PAS_RE = re.compile(r"(?i)\bPAS_(WT\d+|\d{2,4}(?:-\d+)?)\b")
 
-def normalize_tokens(tokens): return {t.strip().upper() for t in tokens if isinstance(t, str) and t.strip()}
-def split_tokens(name): return [t for t in re.split(r"[_.]", str(name)) if t]
+def normalize_tokens(tokens): 
+    return {t.strip().upper() for t in tokens if isinstance(t, str) and t.strip()}
+
+def split_tokens(name): 
+    return [t for t in re.split(r"[_.]", str(name)) if t]
 
 def extract_labels(name, ignore_tokens: Set[str], tissue_tokens: Set[str]):
     if not isinstance(name, str) or not name: return None, None, None
@@ -124,14 +140,49 @@ def cohort_sort_key(c):
     if str(c).isdigit(): return (1, int(c), str(c))
     return (2, 10**9, str(c))
 
+def guess_metric(cols):
+    for c in cols:
+        if isinstance(c, str) and c.strip().lower() == "positive area percentage": return c
+    for c in cols:
+        if isinstance(c, str) and "positive" in c.lower() and "percent" in c.lower(): return c
+    return None
+
+@st.cache_data
+def load_default_data():
+    candidates = ["insightlab_sample20.csv", "insightlab_sample.csv"]
+    for p in candidates:
+        if os.path.exists(p):
+            df_local = pd.read_csv(p)
+            if "Pixel Count" in df_local.columns:
+                df_local = df_local.drop(columns=["Pixel Count"])
+            return df_local
+    raise FileNotFoundError("Place 'insightlab_sample20.csv' or 'insightlab_sample.csv' next to this app, or upload a CSV.")
+
+uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+if uploaded_file:
+    try:
+        df = pd.read_csv(uploaded_file)
+        if "Pixel Count" in df.columns:
+            df = df.drop(columns=["Pixel Count"])
+    except Exception as e:
+        st.error(f"Could not read the uploaded file: {e}")
+        try:
+            df = load_default_data()
+        except Exception as e2:
+            st.error(str(e2)); st.stop()
+else:
+    try:
+        df = load_default_data()
+    except Exception as e:
+        st.error(str(e)); st.stop()
+
 # Page 1
 if page == "Distributions, Variation & Skewness":
     st.subheader("Preview")
     st.dataframe(df.head())
 
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
-    if not num_cols:
-        st.error("No numeric columns detected."); st.stop()
+    if not num_cols: st.error("No numeric columns detected."); st.stop()
     metric_guess = guess_metric(df.columns) or num_cols[0]
     metric_col = st.selectbox("Numeric column", options=num_cols,
                               index=(num_cols.index(metric_guess) if metric_guess in num_cols else 0),
@@ -165,50 +216,51 @@ if page == "Distributions, Variation & Skewness":
 
     obj_cols = df.select_dtypes(include="object").columns.tolist()
     if obj_cols:
-        filename_col = st.selectbox("Filename column", options=obj_cols,
-                                    index=(obj_cols.index("Name") if "Name" in obj_cols else 0),
-                                    key="dist_filename")
-        ignore_text = st.text_input("Ignore tokens (comma-separated)", value=",".join(sorted(DEFAULT_IGNORE_TOKENS)), key="dist_ignore")
-        tissue_text = st.text_input("Key tokens (comma-separated)", value=",".join(sorted(DEFAULT_TISSUE_TOKENS)), key="dist_tissue")
-        ignore_tokens = normalize_tokens(ignore_text.split(","))
+        filename_col = st.selectbox(
+            "Filename column",
+            options=obj_cols,
+            index=(obj_cols.index("Name") if "Name" in obj_cols else 0),
+            key="dist_filename"
+        )
+
+        # Step 1: cohorts first (regex-only)
+        pre = df.copy()
+        parsed0 = pre[filename_col].astype(str).apply(lambda x: extract_labels(x, ignore_tokens=set(), tissue_tokens=set()))
+        pre["Cohort"] = parsed0.apply(lambda t: t[1])
+        cohort_counts = pre["Cohort"].value_counts(dropna=True)
+        all_cohorts = sorted([c for c in cohort_counts.index.tolist() if pd.notna(c)], key=cohort_sort_key)
+        selected_cohorts = st.multiselect("Filter cohorts", options=all_cohorts, default=all_cohorts, key="dist_cohort_sel")
+
+        # Step 2: key tokens
+        tissue_text = st.text_input("Key tokens (comma-separated, e.g., Heart, Liver, HRT, LVR)",
+                                    value=",".join(sorted(DEFAULT_TISSUE_TOKENS)), key="dist_tissue")
+
+        # Step 3: ignore tokens
+        ignore_text = st.text_input("Ignore tokens (comma-separated, e.g., S3, scan 3)",
+                                    value=",".join(sorted(DEFAULT_IGNORE_TOKENS)), key="dist_ignore")
+
         tissue_tokens = normalize_tokens(tissue_text.split(","))
-        use_tissue = st.sidebar.toggle("Use tissue as a factor (distributions page)", value=False, key="dist_use_tissue")
+        ignore_tokens = normalize_tokens(ignore_text.split(","))
 
         w = df.copy()
         parsed = w[filename_col].astype(str).apply(lambda x: extract_labels(x, ignore_tokens, tissue_tokens))
         w["Group_Full"] = parsed.apply(lambda t: t[0]); w["Cohort"] = parsed.apply(lambda t: t[1]); w["Tissue"] = parsed.apply(lambda t: t[2])
         base = w[[filename_col, metric_col, "Group_Full", "Cohort", "Tissue"]].dropna(subset=[metric_col]).copy()
-
-        cohort_counts = base["Cohort"].value_counts(dropna=True)
-        all_cohorts = sorted([c for c in cohort_counts.index.tolist() if pd.notna(c)], key=cohort_sort_key)
-        selected_cohorts = st.multiselect("Filter cohorts", options=all_cohorts, default=all_cohorts, key="dist_cohort_sel")
         if selected_cohorts: base = base[base["Cohort"].isin(selected_cohorts)]
 
         if not base.empty:
             order_coh = sorted(base["Cohort"].dropna().unique(), key=cohort_sort_key)
             title_cohort_box = f"{metric_col} by Cohort "
             fig_c, ax_c = plt.subplots(figsize=(10, 4.8))
-            if use_tissue and base["Tissue"].notna().any():
-                sns.boxplot(data=base, x="Cohort", y=metric_col, hue="Tissue", order=order_coh, ax=ax_c, fliersize=2, linewidth=1)
-                ax_c.legend(title="Tissue", frameon=True)
-            else:
-                sns.boxplot(data=base, x="Cohort", y=metric_col, order=order_coh, ax=ax_c, color=COLOR, fliersize=2, linewidth=1)
+            sns.boxplot(data=base, x="Cohort", y=metric_col, order=order_coh, ax=ax_c, color=COLOR, fliersize=2, linewidth=1)
             stylize(ax_c, title_cohort_box, "Cohort", metric_col)
 
-            # ---- NEW: Y-axis controls for the cohort box plot ----
             ymin_cohort = st.number_input("Y min (Cohort box)", value=0.0, step=0.1, key="ymin_cohort_box")
-            ymax_cohort = st.number_input("Y max (Cohort box)", value=0.0, step=0.1, key="ymax_cohort_box")  # 0 = auto
+            ymax_cohort = st.number_input("Y max (Cohort box)", value=0.0, step=0.1, key="ymax_cohort_box")
             tick_step_cohort = st.number_input("Y tick step (Cohort box, 0 = auto)", min_value=0.0, value=0.0, step=0.1, key="ytick_cohort_box")
-
-            apply_ylim_range(
-                ax_c,
-                data_min=base[metric_col].min(),
-                data_max=base[metric_col].max(),
-                min_override=ymin_cohort,
-                max_override=ymax_cohort if ymax_cohort > 0 else None
-            )
+            apply_ylim_range(ax_c, data_min=base[metric_col].min(), data_max=base[metric_col].max(),
+                             min_override=ymin_cohort, max_override=ymax_cohort if ymax_cohort > 0 else None)
             apply_locator(ax_c, tick_step_cohort)
-            # ------------------------------------------------------
 
             st.pyplot(fig_c)
             st.download_button("Download PNG (Cohort box)", data=fig_png_bytes(fig_c), file_name=fname_from_title(title_cohort_box), mime="image/png")
@@ -217,20 +269,13 @@ if page == "Distributions, Variation & Skewness":
             if cohort_opts:
                 single_cohort = st.selectbox("Choose a cohort", options=cohort_opts, key="dist_single_cohort")
                 within = base[base["Cohort"] == single_cohort].dropna(subset=["Group_Full"]).copy()
-                if qc_mode:
-                    grp_cols2 = ["Group_Full","Tissue"] if (use_tissue and within["Tissue"].notna().any()) else ["Group_Full"]
-                    within = mark_outliers_iqr(within, metric_col, grp_cols2)
                 if not within.empty:
                     stats_per_id = within.groupby("Group_Full")[metric_col].agg(["median","mean"]).reset_index()
                     order_ids = stats_per_id.sort_values("median", ascending=False)["Group_Full"].tolist()
                     fig_w = max(8, min(22, 0.55*len(order_ids)))
                     title_wcoh = f"{single_cohort}: {metric_col} by Group ID"
                     fig_wcoh, ax_wcoh = plt.subplots(figsize=(fig_w, 4.8))
-                    if use_tissue and within["Tissue"].notna().any():
-                        sns.boxplot(data=within, x="Group_Full", y=metric_col, hue="Tissue", order=order_ids, ax=ax_wcoh, fliersize=2, linewidth=1)
-                        ax_wcoh.legend(title="Tissue", frameon=True)
-                    else:
-                        sns.boxplot(data=within, x="Group_Full", y=metric_col, order=order_ids, ax=ax_wcoh, color=COLOR, fliersize=2, linewidth=1)
+                    sns.boxplot(data=within, x="Group_Full", y=metric_col, order=order_ids, ax=ax_wcoh, color=COLOR, fliersize=2, linewidth=1)
                     stylize(ax_wcoh, title_wcoh, "Group ID", metric_col)
                     for lbl in ax_wcoh.get_xticklabels(): lbl.set_rotation(28); lbl.set_ha("right")
                     st.pyplot(fig_wcoh)
@@ -241,13 +286,11 @@ else:
     st.subheader("Metric by Group")
 
     obj_cols = df.select_dtypes(include="object").columns.tolist()
-    if not obj_cols:
-        st.error("No text/filename column found."); st.stop()
+    if not obj_cols: st.error("No text/filename column found."); st.stop()
     filename_col = st.selectbox("Filename column", options=obj_cols, index=(obj_cols.index("Name") if "Name" in obj_cols else 0))
 
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
-    if not num_cols:
-        st.error("No numeric columns found."); st.stop()
+    if not num_cols: st.error("No numeric columns found."); st.stop()
     metric_guess = guess_metric(df.columns) or num_cols[0]
     metric_col = st.selectbox("Metric (y-axis)", options=num_cols, index=(num_cols.index(metric_guess) if metric_guess in num_cols else 0))
 
@@ -255,47 +298,37 @@ else:
     tick_step = st.number_input("Y tick step (0 = auto)", min_value=0.0, value=0.0, step=0.1)
 
     st.markdown("Parsing / Filtering")
-    ignore_text = st.text_input("Ignore tokens (comma-separated)", value=",".join(sorted(DEFAULT_IGNORE_TOKENS)))
-    tissue_text = st.text_input("Key tokens (comma-separated)", value=",".join(sorted(DEFAULT_TISSUE_TOKENS)))
-    ignore_tokens = normalize_tokens(ignore_text.split(","))
-    tissue_tokens = normalize_tokens(tissue_text.split(","))
+
+    # Step 1: cohorts first (regex-only)
+    pre2 = df.copy()
+    parsed0 = pre2[filename_col].astype(str).apply(lambda x: extract_labels(x, ignore_tokens=set(), tissue_tokens=set()))
+    pre2["Cohort"] = parsed0.apply(lambda t: t[1])
+    cohort_counts = pre2["Cohort"].value_counts(dropna=True)
+    all_cohorts = sorted([c for c in cohort_counts.index.tolist() if pd.notna(c)], key=cohort_sort_key)
+    selected_cohorts = st.multiselect("Filter cohorts", options=all_cohorts, default=all_cohorts)
+
+    # Step 2: key tokens
+    tissue_text = st.text_input("Key tokens (comma-separated, e.g., Heart, Liver, HRT, LVR)",
+                                value=",".join(sorted(DEFAULT_TISSUE_TOKENS)))
+
+    # Step 3: ignore tokens
+    ignore_text = st.text_input("Ignore tokens (comma-separated, e.g., S3, scan 3)",
+                                value=",".join(sorted(DEFAULT_IGNORE_TOKENS)))
     drop_ignored = st.checkbox("Drop rows containing any ignored tokens", value=False)
 
+    tissue_tokens = normalize_tokens(tissue_text.split(","))
+    ignore_tokens = normalize_tokens(ignore_text.split(","))
+
     w = df.copy()
-    if drop_ignored:
+    if drop_ignored and ignore_tokens:
         w = w[~w[filename_col].astype(str).str.upper().apply(lambda s: any(tok in s for tok in ignore_tokens))].copy()
 
     parsed = w[filename_col].astype(str).apply(lambda x: extract_labels(x, ignore_tokens, tissue_tokens))
     w["Group_Full"] = parsed.apply(lambda t: t[0]); w["Cohort"] = parsed.apply(lambda t: t[1]); w["Tissue"] = parsed.apply(lambda t: t[2])
     base = w[[filename_col, metric_col, "Group_Full", "Cohort", "Tissue"]].dropna(subset=[metric_col]).copy()
 
-    uniq_tissues = sorted([t for t in base["Tissue"].dropna().unique().tolist()])
-    default_use_tissue = len(uniq_tissues) > 1
-    use_tissue = st.sidebar.toggle("Use tissue as a factor", value=default_use_tissue)
-
-    with st.expander("Parsed preview"):
-        st.dataframe(base.head(20))
-
-    cohort_counts = base["Cohort"].value_counts(dropna=True)
-    all_cohorts = sorted([c for c in cohort_counts.index.tolist() if pd.notna(c)], key=cohort_sort_key)
-    selected_cohorts = st.multiselect("Filter cohorts", options=all_cohorts, default=all_cohorts)
-
-    if use_tissue:
-        tissue_counts = base["Tissue"].value_counts(dropna=True)
-        all_tissues = sorted([t for t in tissue_counts.index.tolist() if pd.notna(t)])
-        selected_tissues = st.multiselect("Filter tissues", options=all_tissues, default=all_tissues)
-    else:
-        selected_tissues = None
-
     if selected_cohorts: base = base[base["Cohort"].isin(selected_cohorts)]
-    if use_tissue and selected_tissues: base = base[base["Tissue"].isin(selected_tissues)]
     if base.empty: st.warning("No rows available after filtering."); st.stop()
-
-    if qc_mode:
-        grp_cols = ["Cohort","Tissue"] if use_tissue else ["Cohort"]
-        small_groups = base.groupby(grp_cols, dropna=False)[metric_col].size()
-        #if (small_groups < 3).any(): st.warning("Some groups have <3 samples. Interpret bars/CI with caution.")
-        base = mark_outliers_iqr(base, metric_col, grp_cols)
 
     st.markdown("### Plot 1 — Compare cohorts")
     agg_mode = st.radio("Aggregation:", options=["mean", "median"], index=0, horizontal=True, key="agg_cohort")
@@ -304,20 +337,12 @@ else:
     fig1, ax1 = plt.subplots(figsize=(10, 5))
     if agg_mode == "mean":
         sns.barplot(data=base, x="Cohort", y=metric_col, estimator=np.mean, ci=95, ax=ax1, color=COLOR, edgecolor=COLOR_DARK, order=order_coh)
-        if qc_mode:
-            sns.stripplot(data=base, x="Cohort", y=metric_col, order=order_coh, ax=ax1, color="black", alpha=0.55, jitter=0.2, size=3)
-            if "_outlier" in base and base["_outlier"].any():
-                out = base[base["_outlier"] == True]
-                sns.stripplot(data=out, x="Cohort", y=metric_col, order=order_coh, ax=ax1, marker="X", linewidth=0.8, edgecolor="red", color="red", size=6)
         title1 = f"{metric_col} by Cohort (mean ± 95% CI)"
         stylize(ax1, title1, "Cohort", metric_col)
     else:
         sns.boxplot(data=base, x="Cohort", y=metric_col, ax=ax1, color=COLOR, fliersize=2, linewidth=1, order=order_coh)
         sns.stripplot(data=base, x="Cohort", y=metric_col, ax=ax1, color=COLOR_DARK, alpha=0.6, jitter=0.2, size=3, order=order_coh)
         title1 = f"{metric_col} by Cohort "
-        if qc_mode and "_outlier" in base and base["_outlier"].any():
-            out = base[base["_outlier"] == True]
-            sns.stripplot(data=out, x="Cohort", y=metric_col, order=order_coh, ax=ax1, marker="X", linewidth=0.8, edgecolor="red", color="red", size=6)
         stylize(ax1, title1, "Cohort", metric_col)
 
     y_max_1 = st.number_input("Y max (Plot 1)", min_value=0.0, value=0.0, step=0.1, key="ymax1")
@@ -341,12 +366,6 @@ else:
     if within.empty:
         st.info("No rows for the selected cohort.")
     else:
-        if qc_mode:
-            grp_cols2 = ["Group_Full","Tissue"] if (use_tissue and within["Tissue"].notna().any()) else ["Group_Full"]
-            within = mark_outliers_iqr(within, metric_col, grp_cols2)
-            small_ids = within.groupby(grp_cols2, dropna=False)[metric_col].size()
-            #if (small_ids < 3).any(): st.warning(f"{single_cohort}: Some subgroups have <3 samples.")
-
         sort_mode = st.selectbox("Sort IDs by", ["ID (A→Z)", "median (desc)", "median (asc)", "mean (desc)", "mean (asc)"], index=1)
         point_size = st.slider("Point size", 3, 12, 6, step=1)
         point_alpha = st.slider("Point transparency", 0.2, 1.0, 0.75, step=0.05)
@@ -361,27 +380,12 @@ else:
             order_ids = stats_per_id.sort_values("mean", ascending=("asc" in sort_mode))["Group_Full"].tolist()
 
         title2 = f"{single_cohort}: {metric_col}"
-        use_hue = bool(use_tissue and within["Tissue"].notna().any())
-        fig_w = max(8, min(22, 0.55*len(order_ids) * (1.2 if use_hue else 1.0)))
+        fig_w = max(8, min(22, 0.55*len(order_ids)))
         fig2, ax2 = plt.subplots(figsize=(fig_w, 5))
 
         common_kwargs = dict(data=within, x="Group_Full", y=metric_col, order=order_ids, ax=ax2,
                              linewidth=0.4, edgecolor="black", alpha=point_alpha)
-        if use_hue:
-            sns.swarmplot(hue="Tissue", dodge=True, size=point_size, **common_kwargs)
-            ax2.legend(title="Tissue", frameon=True)
-        else:
-            sns.swarmplot(size=point_size, color=COLOR_DARK, **common_kwargs)
-
-        if qc_mode and "_outlier" in within and within["_outlier"].any():
-            o2 = within[within["_outlier"] == True]
-            sns.stripplot(data=o2, x="Group_Full", y=metric_col, order=order_ids, ax=ax2,
-                          marker="X", linewidth=0.9, edgecolor="red", color="red",
-                          size=min(point_size+2, 12), dodge=use_hue, hue=("Tissue" if use_hue else None), jitter=0.0)
-            if use_hue and ax2.get_legend():
-                handles, labels = ax2.get_legend_handles_labels()
-                uniq = list(dict(zip(labels, handles)).items())
-                ax2.legend([h for _, h in uniq], [l for l, _ in uniq], title="Tissue", frameon=True)
+        sns.swarmplot(size=point_size, color=COLOR_DARK, **common_kwargs)
 
         if "cohort mean" in show_ref:
             m = float(within[metric_col].mean())
@@ -402,10 +406,7 @@ else:
             st.download_button("Download rows (CSV)", data=safecsv(within[[filename_col,"Cohort","Group_Full","Tissue",metric_col]]), file_name="within_cohort_rows.csv", mime="text/csv")
 
         with st.expander("Show the math (within-cohort)"):
-            if use_hue:
-                math_within = within.groupby(["Group_Full","Tissue"])[metric_col].apply(calc_table).reset_index().drop(columns=["level_2"])
-            else:
-                math_within = within.groupby(["Group_Full"])[metric_col].apply(calc_table).reset_index().drop(columns=["level_1"])
+            math_within = within.groupby(["Group_Full"])[metric_col].apply(calc_table).reset_index().drop(columns=["level_1"])
             st.dataframe(math_within)
             st.download_button("Download within-cohort calculations (CSV)", data=safecsv(math_within), file_name="within_cohort_calculations.csv", mime="text/csv")
 
@@ -420,10 +421,7 @@ else:
         fig_d, ax_d = plt.subplots(figsize=(max(8, min(18, 0.5*len(per_img))), 5))
         plot_df2 = per_img.copy()
         plot_df2["Label"] = plot_df2["Group_Full"].fillna(plot_df2[filename_col].astype(str))
-        hue_arg = "Tissue" if (use_tissue and plot_df2["Tissue"].notna().any()) else None
-        sns.barplot(data=plot_df2, x="Label", y=metric_col, hue=hue_arg, ax=ax_d, edgecolor=COLOR_DARK)
-        if qc_mode:
-            sns.stripplot(data=plot_df2, x="Label", y=metric_col, hue=hue_arg, dodge=bool(hue_arg), alpha=0.5, size=3, jitter=0.15, ax=ax_d)
+        sns.barplot(data=plot_df2, x="Label", y=metric_col, ax=ax_d, edgecolor=COLOR_DARK, color=COLOR)
         title_d = f"Per-Image: {metric_col}"
         stylize(ax_d, title_d, "Image", metric_col)
         y_max_d = st.number_input("Y max (Per-image)", min_value=0.0, value=0.0, step=0.1, key="ymax_d2")
@@ -437,8 +435,6 @@ else:
             st.dataframe(plot_df2[[filename_col,"Label","Cohort","Tissue",metric_col]].reset_index(drop=True))
             st.download_button("Download rows (CSV)", data=safecsv(plot_df2[[filename_col,"Label","Cohort","Tissue",metric_col]]), file_name="per_image_rows.csv", mime="text/csv")
         with st.expander("Show the math (per-image subset)"):
-            gcols = ["Label"] + ([hue_arg] if hue_arg else [])
-            math_img = plot_df2.groupby(gcols)[metric_col].apply(calc_table).reset_index()
-            math_img = math_img.drop(columns=["level_{}".format(2 if hue_arg else 1)], errors="ignore")
+            math_img = plot_df2.groupby(["Label"])[metric_col].apply(calc_table).reset_index().drop(columns=["level_1"])
             st.dataframe(math_img)
             st.download_button("Download per-image calculations (CSV)", data=safecsv(math_img), file_name="per_image_calculations.csv", mime="text/csv")

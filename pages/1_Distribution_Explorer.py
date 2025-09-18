@@ -19,7 +19,7 @@ df = st.session_state.get("df")
 if df is None:
     try:
         df = load_default_data()
-        st.info("Using sample dataset (load your own on Home).")
+        #st.info("Using sample dataset (load your own on Home).")
     except Exception as e:
         st.error(str(e)); st.stop()
 

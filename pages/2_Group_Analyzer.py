@@ -10,7 +10,7 @@ from lib.helpers import (
     extract_labels, normalize_tokens, cohort_sort_key, guess_metric
 )
 
-st.title("Group Comparisons")
+st.title("Group Analyzer")
 sns.set_theme(style="whitegrid", rc={"axes.spines.top": False, "axes.spines.right": False, "font.size": 12})
 
 df = st.session_state.get("df")

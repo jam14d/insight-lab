@@ -52,9 +52,9 @@ if "df" in st.session_state:
 #     - Adjust Y-limits/ticks and export figures/tables.
 #     """)
 
-# st.divider()
-# st.subheader("Pages")
-# # links from the home page to each page 
-# st.page_link("pages/1_Distribution_Explorer.py", label="Distribution Explorer")
-# st.page_link("pages/2_Group_Comparisons.py", label="Group Comparisons")
-# st.page_link("pages/3_Feature_Engineering_Toolkit.py", label="Feature Engineering Toolkit")
+st.divider()
+st.subheader("Pages")
+# links from the home page to each page 
+st.page_link("pages/1_Distribution_Explorer.py", label="Distribution Explorer")
+st.page_link("pages/2_Group_Comparisons.py", label="Group Comparisons")
+st.page_link("pages/3_Feature_Engineering_Toolkit.py", label="Feature Engineering Toolkit")

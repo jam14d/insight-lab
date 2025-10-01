@@ -1,4 +1,3 @@
-
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -13,6 +12,11 @@ st.title("Transformation Toolkit")
 
 sns.set_theme(style="whitegrid", rc={"axes.spines.top": False, "axes.spines.right": False, "font.size": 12})
 
+# smol helper to render a revealable formula block + plain-English explanation
+def formula_box(label: str, latex: str, expl: str):
+    with st.expander(f"ƒ — {label}", expanded=False):
+        st.latex(latex)
+        st.markdown(expl)
 
 df = st.session_state.get("df")
 if df is None:
@@ -21,7 +25,6 @@ if df is None:
         #st.info("Using sample dataset (load your own on Home).")
     except Exception as e:
         st.error(str(e)); st.stop()
-
 
 # Choose dataset source
 src = st.radio(
@@ -90,7 +93,6 @@ s = df['{col}']  # brackets: column selection
 min_val = {"df['"+col+"'].min()" if lib=="Pandas" else "np.min(df['"+col+"'])"}
 print(min_val)"""
             )
-
 with c2:
     if st.button("Max", key="btn_max"):
         val = (s.max() if lib == "Pandas" else np.max(s))
@@ -99,7 +101,6 @@ with c2:
             st.code(
 f"""max_val = {"df['"+col+"'].max()" if lib=="Pandas" else "np.max(df['"+col+"'])"}"""
             )
-
 with c3:
     if st.button("Mean", key="btn_mean"):
         val = (s.mean() if lib == "Pandas" else np.mean(s))
@@ -108,7 +109,6 @@ with c3:
             st.code(
 f"""mean_val = {"df['"+col+"'].mean()" if lib=="Pandas" else "np.mean(df['"+col+"'])"}"""
             )
-
 with c4:
     if st.button("Median", key="btn_median"):
         val = (s.median() if lib == "Pandas" else np.median(s))
@@ -117,7 +117,6 @@ with c4:
             st.code(
 f"""median_val = {"df['"+col+"'].median()" if lib=="Pandas" else "np.median(df['"+col+"'])"}"""
             )
-
 with c5:
     if st.button("Std (sample)", key="btn_std"):
         # ddof=1 to match sample std
@@ -128,17 +127,60 @@ with c5:
 f"""std_val = {"df['"+col+"'].std(ddof=1)" if lib=="Pandas" else "np.std(df['"+col+"'], ddof=1)"}"""
             )
 
+# Optional: a compact formula reference for stats (with explanations)
+with st.expander("ƒ — Summary Stats", expanded=False):
+    # Minimum
+    st.latex(r"x_{\min} = \min(x_1, x_2, \dots, x_n)")
+    st.markdown("**Minimum (Min):** the smallest number in your data.")
+
+    # Maximum
+    st.latex(r"x_{\max} = \max(x_1, x_2, \dots, x_n)")
+    st.markdown("**Maximum (Max):** the largest number in your data.")
+
+    # Mean
+    st.latex(r"\bar{x} = \frac{1}{n}\sum_{i=1}^{n} x_i")
+    st.markdown("**Mean (average):** add up all the numbers and divide by how many there are.")
+
+    # Median
+    st.latex(r"\text{median} = \text{middle value of ordered } x_i")
+    st.markdown("**Median:** line up all the numbers from smallest to largest, then pick the one in the middle.")
+
+    # Standard deviation (sample)
+    st.latex(r"s = \sqrt{\frac{1}{n-1}\sum_{i=1}^{n}(x_i - \bar{x})^2}")
+    st.markdown("**Standard deviation (sample):** shows how spread out the numbers are — "
+                "it’s roughly the average distance from the mean.")
+
 st.divider()
 
 # Centering & Scaling helpers
 st.markdown("### Centering & Scaling")
 t1, t2, t3 = st.columns(3)
 with t1:
-    center_btn = st.button("Center (x - mean)", key="btn_center")
+    center_btn = st.button("Center", key="btn_center")
+    formula_box(
+        "Center",
+        r"x' = x - \mu",
+        "**Centering:** take each value and subtract the average. "
+        "This shifts the data so the mean is 0; the shape/spread stays the same."
+    )
+
 with t2:
-    zscore_btn = st.button("Z-Score ((x - mean)/std)", key="btn_zscore")
+    zscore_btn = st.button("Z-Score", key="btn_zscore")
+    formula_box(
+        "Z-Score",
+        r"z = \frac{x - \mu}{\sigma}",
+        "**Z-score:** take your value, subtract the average, then divide by the standard deviation. "
+        "Tells you how many standard deviations above/below average a value is."
+    )
+
 with t3:
-    minmax_btn = st.button("Min–Max Scale to [0, 1]", key="btn_minmax")
+    minmax_btn = st.button("Min–Max Scaler [0,1]", key="btn_minmax")
+    formula_box(
+        "Min–Max Scaler",
+        r"x' = \frac{x - x_{\min}}{x_{\max} - x_{\min}}",
+        "**Min–Max Scaling:** subtract the smallest value, then divide by the range (max − min). "
+        "Squishes all values into the range [0, 1]."
+    )
 
 mean_val = float(s.mean()) if len(s) else np.nan
 std_val = float(s.std(ddof=1)) if len(s) > 1 else np.nan
@@ -244,6 +286,23 @@ st.divider()
 st.markdown("### Log Transformation")
 st.caption("Applies a natural log transform to compress large values and reduce right-skew.")
 
+# revealable formulas for log transform (piecewise) + explanation
+formula_box(
+    "Log transform",
+    r"""
+x' =
+\begin{cases}
+\ln x, & x>0\\
+\ln(1+x), & x\ge 0\\
+\ln(x+c), & \text{otherwise, with } c>-\min(x)
+\end{cases}
+""",
+    "**Log transform:** shrinks big numbers more than small ones to reduce skew.\n\n"
+    "- If all values are positive, use `ln(x)`.\n"
+    "- If zeros occur, use `ln(1 + x)`.\n"
+    "- If negatives occur, shift by a constant `c` so everything is > 0, then take the log."
+)
+
 # Decide best method depending on values
 if np.all(s > 0):
     method_used = "ln(x)"
@@ -298,3 +357,4 @@ log_vals = np.log(s)      # if all s > 0
 log_vals = np.log1p(s)    # if all s ≥ 0
 log_vals = np.log(s + c)  # if some s ≤ 0, with shift c > -min(s)"""
         )
+

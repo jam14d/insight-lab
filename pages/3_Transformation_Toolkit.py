@@ -241,8 +241,6 @@ mm = (s - min_val) / (max_val - min_val)"""
             )
 
 st.divider()
-
-st.divider()
 st.markdown("### Log Transformation")
 st.caption("Applies a natural log transform to compress large values and reduce right-skew.")
 

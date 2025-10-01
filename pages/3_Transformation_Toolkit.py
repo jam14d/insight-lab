@@ -1,4 +1,4 @@
-# pages/3_Feature_Engineering_Toolkit.py
+
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -239,3 +239,64 @@ f"""s = df['{col}'].to_numpy(dtype=float)
 min_val, max_val = np.min(s), np.max(s)
 mm = (s - min_val) / (max_val - min_val)"""
             )
+
+st.divider()
+
+st.divider()
+st.markdown("### Log Transformation")
+st.caption("Applies a natural log transform to compress large values and reduce right-skew.")
+
+# Decide best method depending on values
+if np.all(s > 0):
+    method_used = "ln(x)"
+    log_vals = np.log(s if lib == "NumPy" else s.astype(float))
+elif np.all(s >= 0):
+    method_used = "ln(1 + x)"
+    log_vals = np.log1p(s if lib == "NumPy" else s.astype(float))
+else:
+    shift = -s.min() + eps
+    method_used = f"ln(x + {shift:.6g})"
+    shifted = s + shift
+    log_vals = np.log(shifted if lib == "NumPy" else shifted.astype(float))
+
+#  Before/After histograms 
+col1, col2 = st.columns(2)
+with col1:
+    show_hist(s, f"{col} — Original")
+with col2:
+    show_hist(log_vals, f"{col} — {method_used}")
+
+#  Sample comparison table 
+sample = pd.DataFrame({
+    col: s.sample(min(5, len(s)), random_state=42),
+    f"{col}_log": log_vals.sample(min(5, len(s)), random_state=42).round(6)
+})
+st.dataframe(sample.reset_index(drop=True), use_container_width=True)
+
+#  Download button 
+st.download_button(
+    "Download CSV (log-transformed column)",
+    data=safecsv(log_vals.to_frame(name=f"{col}_log")),
+    file_name=f"{slugify(col)}_log.csv",
+    mime="text/csv",
+    key="dl_log_csv"
+)
+
+#  Optional code 
+if show_code:
+    if lib == "Pandas":
+        st.code(
+f"""s = df['{col}'].astype(float)
+# choose depending on values:
+log_vals = np.log(s)      # if all s > 0
+log_vals = np.log1p(s)    # if all s ≥ 0
+log_vals = np.log(s + c)  # if some s ≤ 0, with shift c > -min(s)"""
+        )
+    else:
+        st.code(
+f"""s = df['{col}'].to_numpy(dtype=float)
+# choose depending on values:
+log_vals = np.log(s)      # if all s > 0
+log_vals = np.log1p(s)    # if all s ≥ 0
+log_vals = np.log(s + c)  # if some s ≤ 0, with shift c > -min(s)"""
+        )
